@@ -79,7 +79,7 @@ var K = {
 		function check(definition){
 			return Object.keys(o).every(function(key){ return definition.map(function(d){ return d.name; }).indexOf(key)!=-1 })	//no other properties
 				&& definition.every(function(d){ //for all propertydefinitions
-					if(d.optional==false && !o[d.name]){ return false; } //they are present if not optional
+					if(d.optional===false && !o[d.name]){ return false; } //they are present if not optional
 					if(!!o[d.name] && !!d.type && typeof o[d.name]!==d.type){ return false; } //they have the right type (if set)
 					return true;
 				});
@@ -92,10 +92,10 @@ var K = {
 	, isDefined : function(o){ return o!==null && o!== undefined; }
 	, createId : function(i){	
 		var s = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",sl=s.length;
-		return s[ 0 | Math.random()*sl ] + (i==1 ? "" : k.createId( (i||8) -1) ); // 0| is aequivalent but faster than Math.floor()
+		return s[ 0 | Math.random()*sl ] + (i==1 ? "" : K.createId( (i||8) -1) ); // 0| is aequivalent but faster than Math.floor()
 	}
 	, merge : function (to,from,dontOverwrite){
-		for(var name in from){if(from.hasOwnProperty(key)){ //faster than  Object.keys(from).forEach(function(name){}); ...
+		for(var name in from){if(from.hasOwnProperty(name)){ //faster than  Object.keys(from).forEach(function(name){}); ...
 			if(!dontOverwrite || !K.isDefined(to[name])){
 				to[name] = from[name];
 			}
