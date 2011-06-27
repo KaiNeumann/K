@@ -1,44 +1,45 @@
 "use strict";
 var K = {
-      load: function(){
+      require: function(){
 		var   callbackStack = []
 			, urlStack = []
 			, interval = 200; 		// interval in ms how frequently we check for completion of ressource loading
 		K.args(arguments).forEach(function(arg){//allows many arguments, that even can be arrays of urls (or callback functions)
 			if(typeof arg==="function"){
 				callbackStack.push(arg);
-			}else if(typeof arg==="string" && arg.indexOf(".")!=-1){
-                var url = arg;
+			}else if(typeof arg==="string" && arg.indexOf(".")!==-1){
+				var url = arg;
+				if(urlStack.filter(function(el){ return el.url===url; }).length>0){ return; } //check if url already in stack
 				urlStack.push({url:url,status:"requested"});
 				var urlStackIndex = urlStack.length-1;
 				switch(url.substring(url.lastIndexOf(".")+1)){
 					case "css":
-						var css = document.createElement('link');
-						css.rel = "stylesheet";
-						css.type = "text/css";
-						css.href = url;
-						css.onload = function(){ urlStack[urlStackIndex].status = "loaded"; };	//TODO does FF 4+ support this?
-						css.onerror = function(){ urlStack[urlStackIndex].status = "failed"; };
+						var css =		document.createElement('link');
+						css.rel =		"stylesheet";
+						css.type =		"text/css";
+						css.href =		url;
+						css.onload = 	function(){ urlStack[urlStackIndex].status = "loaded"; };	//TODO does FF 4+ support this?
+						css.onerror =	function(){ urlStack[urlStackIndex].status = "failed"; };
 						(document.head || document.getElementsByTagName('head')[0]).appendChild(css);
 						break;
 					case "js": //alternative that even google uses: document.write('<script src="' + url + '" type="text/javascript"></script>');
-						var js = document.createElement("script");
-						js.type = "text/javascript";
-						js.async = true;
-						js.src = url;
-						js.onload = function(){ urlStack[urlStackIndex].status = "loaded"; };
-						js.onerror = function(){ urlStack[urlStackIndex].status = "failed"; };
+						var js = 		document.createElement("script");
+						js.type = 		"text/javascript";
+						js.async = 		true;
+						js.src = 		url;
+						js.onload = 	function(){ urlStack[urlStackIndex].status = "loaded"; };
+						js.onerror = 	function(){ urlStack[urlStackIndex].status = "failed"; };
 						(document.head || document.getElementsByTagName('head')[0]).appendChild(js);
 						break;
-					case "jpg":	//fallthrough for all image types
+					case "jpg":	//fallthrough for preload of all image types
 					case "png":
 					case "gif":
 					case "jpeg":
 					case "bmp":
-						var img = new Image();
-						img.onload = function(){ urlStack[urlStackIndex].status = "loaded"; };
-						img.onerror = function(){ urlStack[urlStackIndex].status = "failed"; };
-						img.src = url;
+						var img = 		new Image();
+						img.onload = 	function(){ urlStack[urlStackIndex].status = "loaded"; };
+						img.onerror = 	function(){ urlStack[urlStackIndex].status = "failed"; };
+						img.src = 		url;
 						break;
 					default:
 						//nop
@@ -47,20 +48,21 @@ var K = {
 			}//end if argument is a ressource url
 		});//end for each flattened arguments
 		var c = setInterval(function() { 
-			if( urlStack.every(function(o){ return o.status == "loaded"; }) ){ // if all ressources are loaded, call all functions in callbackStack
+			if( urlStack.every(function(o){ return o.status === "loaded"; }) ){ // if all ressources are loaded, call all functions in callbackStack
 				clearInterval(c);
-				callbackStack.forEach(function(fn){ fn.call(); });
+				callbackStack.forEach(function(fn){ fn(); });
 				return true;
 			}
-			if( urlStack.some(function(o){ return o.status == "failed"; }) ){ // if some urls are aborted, throw an error
+			else if( urlStack.some(function(o){ return o.status === "failed"; }) ){ // if some urls are aborted, throw an error
 				clearInterval(c);
-				throw new Error("K.load failed. The following urls couldn't be loaded: "+urlStack.filter(function(o){return o.status == "failed"; }).join(", ") );
+				throw new Error("K.load failed. current urlStack: "+urlStack);
 			}
+			//else just wait another interval
 		}, interval);
 		
 	}
 	, isDescriptor: function(o,type){
-		if(typeof o!="object"){ return false; }
+		if(typeof o!=="object"){ return false; }
 		var DataDescriptorDefinition = [
 			 {name:"value", optional:false}
 			,{name:"writable",optional:true,type:"boolean"}
@@ -73,8 +75,8 @@ var K = {
 			,{name:"enumerable",optional:true,type:"boolean"}
 			,{name:"configurable",optional:true,type:"boolean"}
 		];
-		return ( (!type || type=="data") ? check(DataDescriptorDefinition) : true )			//check for DataDescriptor if definitiontype is "data" or if no definition specified
-			|| ( (!type || type=="accessor") ? check(AccessorDescriptorDefinition) : true );	//check for AccessorDescriptor if definitiontype is "accessor" or if no definition specified
+		return ( (!type || type==="data") ? check(DataDescriptorDefinition) : true )			//check for DataDescriptor if definitiontype is "data" or if no definition specified
+			|| ( (!type || type==="accessor") ? check(AccessorDescriptorDefinition) : true );	//check for AccessorDescriptor if definitiontype is "accessor" or if no definition specified
 		
 		function check(definition){
 			return Object.keys(o).every(function(key){ return definition.map(function(d){ return d.name; }).indexOf(key)!=-1 })	//no other properties
@@ -92,9 +94,9 @@ var K = {
 	, isDefined : function(o){ return o!==null && o!== undefined; }
 	, createId : function(i){	
 		var s = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",sl=s.length;
-		return s[ 0 | Math.random()*sl ] + (i==1 ? "" : K.createId( (i||8) -1) ); // 0| is aequivalent but faster than Math.floor()
+		return s[ 0 | Math.random()*sl ] + (i==1 ? "" : k.createId( (i||8) -1) ); // 0| is aequivalent but faster than Math.floor()
 	}
-	, merge : function (to,from,dontOverwrite){
+    , merge : function (to,from,dontOverwrite){
 		for(var name in from){if(from.hasOwnProperty(name)){ //faster than  Object.keys(from).forEach(function(name){}); ...
 			if(!dontOverwrite || !K.isDefined(to[name])){
 				to[name] = from[name];
@@ -105,6 +107,7 @@ var K = {
 	, extend: function(o){//allows objects and arrays of objects to be mixed into o. Supports dontOverwrite flags with simple keyword strings
 		var dontOverwrite = false;
 		K.args(arguments,1).forEach(function(arg){
+			if(!K.isDefined(arg)){ return; }
 			switch (arg){
 				case "dontOverwrite":	dontOverwrite = true; break;
 				case "overwrite":		dontOverwrite = false; break;	
@@ -126,16 +129,16 @@ K.Base = {
 				var val = arg[key];
 				properties[key] = K.isDescriptor(val) ? val : { value:val, writable:true, enumerable:true, configurable:true };//convert simple property val to propertyDescriptor of val
 															 //Object.getOwnPropertyDescriptor(o, key); // I don't get it, are default values really true? The ECMA specs say it is "false"!
-				if(typeof properties[key].value=="function" && typeof this[key]=="function"){
-					var _base = this;//this ist in diesem Context die SuperClass oder BaseClass
+				if(typeof properties[key].value==="function" && typeof this[key]==="function"){
+					var _that = this;//this ist in diesem Context die SuperClass oder BaseClass
 					properties[key].value = function(){ //wrap function to provide access to base method via this._base
 						var temp = this._base;
-						this._base = _base[key]; 
+						this._base = _that[key]; 
 						var result = val.apply(this,arguments); 
 						this._base = temp;
 						return result;
 					}; 
-					//TODO necessary? There is already this._base existing, so I could always call this._base._init.apply(this,arguments) anstatt this._base().apply(this,arguments)
+					//TODO necessary? There is already this._base existing, so I could always call this._base._init.apply(this,arguments) anstatt this._base.apply(this,arguments)
 				}
 			},this);
 		},this);
@@ -144,17 +147,12 @@ K.Base = {
 	, create: function(){
 		var o = Object.create(this);
 		Object.defineProperties(o,{
-			  _setupArguments:	{value:Array.slice(arguments),writable:true,configurable:false}
-			, _base:			{value:this,writable:true,configurable:false}
+			  _setupArguments:	{value:Array.prototype.slice.call(arguments),writable:true,configurable:false}
+			, constructor:		{value:this,writable:true,configurable:false}
 		});
-		if(o._init){ o._init.apply(o,arguments); }
+		if(!!o._init){ o._init.apply(o,arguments); }
 		return o;
 	}
 	, _init: function(){return this;}
-	, extend: function(){
-		K.args(arguments).forEach(function(arg){
-			if(K.isDefined(arg)){ K.merge(this,arg); }
-		},this);
-		return this;
-	}
+	, extend: function(){ return K.extend(this,arguments); }
 };
