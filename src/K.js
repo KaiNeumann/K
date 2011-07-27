@@ -19,6 +19,7 @@ var K = {
     //Namespace root files have to be included directly in the header in own script tags
     , require: function(){
         var callbackStack = []
+            , hasCallbacks = K.args(arguments).some(function(arg){return typeof arg==="function";}) //use to determine if we load scripts synchronously or not
             , urls = []
             , path = ""             //path for subsequent requirements
             , interval = 200        // interval in ms how frequently we check for completion of ressource loading
@@ -48,7 +49,7 @@ var K = {
                     case "js": //alternative that even google uses: document.write('<script src="' + url + '" type="text/javascript"></script>');
                         var js =        document.createElement("script");
                         js.type =       "text/javascript";
-                        js.async =      false; //??? true;
+                        js.async =      !hasCallbacks; // async = true if no Callbacks, async = false (synchronous) if there are callback functions
                         js.src =        url;
                         js.onload =     function(){ urls[urlStackIndex].status = "loaded"; K.loadedUrls[loadedUrlsIndex].status = "loaded"; };
                         js.onerror =    function(){ urls[urlStackIndex].status = "failed"; K.loadedUrls[loadedUrlsIndex].status = "failed"; };
