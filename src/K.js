@@ -1,3 +1,5 @@
+(function(window,undefined) { //in case somebody has redefined window or undefined...
+
 "use strict";
 var K = {
       about: {
@@ -13,97 +15,102 @@ var K = {
     
     //Ressource loader K.require
     
-    , loadedUrls: []        //Cache of already loaded urls urls. Not implemented as {url:status} object but as Array, so I don't have to care about urls being legular var names
+    , loadedUrls: []        //Cache of already loaded urls.
+    , requirements: {}
     , NamespacePaths: {}    //Cache of known paths to namespaces
     //Namespaces have to be defined in an own js file, because it's absolute path will be used for loading requirements of same namespace
     //Namespace root files have to be included directly in the header in own script tags
-    , require: function(){
-        var callbackStack = []
-            , hasCallbacks = K.args(arguments).some(function(arg){return typeof arg==="function";}) //use to determine if we load scripts synchronously or not
-            , urls = []
-            , path = ""             //path for subsequent requirements
-            , interval = 200        // interval in ms how frequently we check for completion of ressource loading
-            , maxIntervals = 100;   // max number of intervals to wait for ressources to load, just to avoid endless waiting
+    , require: function(/*arguments: urlstrings or functions*/){
+        var id = K.createId();
+        var req = K.requirements[id] = {};
+        var callbackStack =     []
+            , hasCallbacks =    K.args(arguments).some(function(arg){return typeof arg==="function";}) //use to determine if we load scripts asynchronously or not
+            , interval =        99          // interval in ms how frequently we check for completion of ressource loading
+            , maxIntervals =    200;        // max number of intervals to wait for ressources to load, just to avoid endless waiting
         K.args(arguments).forEach(function(arg){    //allows many arguments, that even can be arrays of urls (or callback functions)
             if(typeof arg==="function"){
                 callbackStack.push(arg);
-            }else if(typeof arg==="string" && arg.indexOf(".")!==-1){
+            }else if(typeof arg==="string" && arg.indexOf(".")!==-1){ //any string with "." in it is considered to be an url candidate
                 var url = toAbsolutePath(arg);
-                if(K.loadedUrls.filter(function(el){ return el.url===url; }).length>0){ return; } //check if url already loaded
-                if(urls.filter(function(el){ return el.url===url; }).length>0){ return; } //check if url already in own stack
-                urls.push({url:url,status:"requested"});
-                var urlStackIndex = urls.length-1;
-                K.loadedUrls.push({url:url,status:"requested"});
-                var loadedUrlsIndex = K.loadedUrls.length-1;
+                if(req[url] || K.loadedUrls.indexOf(url)>-1){ return; } //check if url already in own stack or loaded elsewhere
+                req[url] = "requested";
+                K.loadedUrls.push( url );
                 switch(url.substring(url.lastIndexOf(".")+1)){
                     case "css":
                         var css =       document.createElement('link');
                         css.rel =       "stylesheet";
                         css.type =      "text/css";
                         css.href =      url;
-                        //TODO does FF 4+ support this onload, onerror?
-                        css.onload =    function(){ urls[urlStackIndex].status = "loaded"; K.loadedUrls[loadedUrlsIndex].status = "loaded"; };	
-                        css.onerror =   function(){ urls[urlStackIndex].status = "failed"; K.loadedUrls[loadedUrlsIndex].status = "failed"; };
+                        req[url]="loaded"; //FIXME as long as onload and onerror are not supported in Chrome and Firefox, I consider them to be successfully loaded anyway. Let's see how far I can get with this...
                         (document.head || document.getElementsByTagName('head')[0]).appendChild(css);
                         break;
-                    case "js": //alternative that even google uses: document.write('<script src="' + url + '" type="text/javascript"></script>');
+                    case "js":
                         var js =        document.createElement("script");
                         js.type =       "text/javascript";
                         js.async =      !hasCallbacks; // async = true if no Callbacks, async = false (synchronous) if there are callback functions
+                        js.onload =     function(){ req[url] = "loaded"; }; //addEventListener(js, 'load', function() { req[url] =  = "loaded"; });
+                        js.onerror =    function(){ req[url] = "failed"; };
                         js.src =        url;
-                        js.onload =     function(){ urls[urlStackIndex].status = "loaded"; K.loadedUrls[loadedUrlsIndex].status = "loaded"; };
-                        js.onerror =    function(){ urls[urlStackIndex].status = "failed"; K.loadedUrls[loadedUrlsIndex].status = "failed"; };
-                        (document.head || document.getElementsByTagName('head')[0]).appendChild(js);
+                        (document.body || document.getElementsByTagName('body')[0]).appendChild(js); //when adding to head, sometimes the onload event is not triggered (chrome 13)
                         break;
-                    //TODO should I change image preloading so that they are immediately considered successfully loaded, even if they weren't. So they would be considered optional...
-                    case "jpg":	//fallthrough for preload of all image types
+                    case "jpg": //fallthrough for preload of all image types
                     case "png":
                     case "gif":
                     case "jpeg":
                     case "bmp":
                         var img =       new Image();
-                        img.onload =    function(){ urls[urlStackIndex].status = "loaded"; K.loadedUrls[loadedUrlsIndex].status = "loaded"; };
-                        img.onerror =   function(){ urls[urlStackIndex].status = "failed"; K.loadedUrls[loadedUrlsIndex].status = "failed"; };
                         img.src =       url;
+                        req[url]="loaded"; //TO REVIEW image preloading is immediately considered successful
                         break;
-                    default: //nop
+                    default:
+                        throw new Error("require failed on unknown ressource type "+url);
                     break;
                 }//end switch between ressource types
-            }//end if argument is a ressource url
+            } else {
+                throw new Error("require failed as argument is no url: "+url);
+            }
         });//end for each flattened arguments
         var intervals = 0;
+        if(Object.keys(req).length==0 && callbackStack.length==0){ return true; } //everything already cached, or no requirement given and no callbacks defined
         var c = setInterval(function() { 
-            if( urls.every(function(o){ return o.status === "loaded"; }) ){ // if all ressources are loaded, call all functions in callbackStack
+            if(Object.keys(req).every(function(key){ return req[key]=="loaded"; }) ){
                 clearInterval(c);
-                callbackStack.forEach(function(fn){ fn(); });
+                //console.log("K.require succeeded after waiting "+intervals+" intervals à "+interval+" ms. urls: "+JSON.stringify(req)+". Ready to call "+callbackStack.length+" callback functions." );
+                callbackStack.forEach(function(fn,i){ 
+                    //console.log("  calling callback function #"+i);
+                    fn(); 
+                    //console.log("    success");
+                });
                 return true;
-            } else if( intervals > maxIntervals || urls.some(function(o){ return o.status === "failed"; }) ){ // if timeout or some urls are aborted, throw an error
+            } else if( intervals >= maxIntervals || Object.keys(req).some(function(key){ return key == "failed"; }) ){ // if timeout or some urls are aborted, throw an error
                 clearInterval(c);
-                throw new Error("K.require failed. current urlStack: "+urls);
+                throw new Error("K.require failed after waiting "+intervals+" intervals à "+interval+" ms. Current urlStack: "+JSON.stringify(req));
             }
             //else just wait another interval
             intervals++;
         }, interval);
+        //console.log("require set up for "+callbackStack.length+" callbacks, and the following urls: "+JSON.stringify(req) );
         return true;
         
         function toAbsolutePath(url){ //adds a relative url to it's absolute path, eliminating "/./" and "/parent/../ "
             url = url.replace(/\/\.\\/g,"/");   //just for sanity reasons
             url = getNamespacePath(url)+url;    //add absolute base url for base namespace
-            //FIXME: if we dont have an absolute path but a relative one, starting with ../../ this function will fail!
-            var r = /\/([^\/]*\/..)\//;         //resolve relative url part to acces parent folders
-            while(url.test(r)){ 
+            //FIXME: if we dont have an absolute path but a relative one, starting with ../ or ../../ this function will fail!
+            // e.g fails on   "../file.js", "../../file.js" and urls that resolve to those two patterns like "test/parent/../../../../file.js"
+            var r = /([^\/]*\/\.\.\/)/;         //resolve relative url part to acces parent folders
+            while(r.test(url)){ 
                 url = url.replace(url.match(r)[1],""); 
             }
             return url;
         }
         function getNamespacePath(url){ 
-            var namespace = url.substring(0,url.indexOf("."));                                   //Namespace is the first part of a uri, e.g. for Test.Base namespace is Test
+            var namespace = url.substring(0,url.indexOf("."));                                   //Namespace is the first part of a uri, e.g. for Test.Base.js namespace is Test
             if(K.NamespacePaths[namespace]){ return K.NamespacePaths[namespace]; }              //quick path if namespace path already cached
             var url_pattern = new RegExp("^(.*)"+ namespace +"\.js$");                           //Look for root js file of namespace,e.g. Test.js
             var aScriptNodes = document.getElementsByTagName("script");
             for(var i=0;i<aScriptNodes.length;i++){                                             //look in loaded scripts for namespaces
                 if(aScriptNodes[i].src && url_pattern.test(aScriptNodes[i].src)){ 
-                    K.NamespacePaths[namespace] = url_pattern.exec(aScriptNodes[i].src)[1]+"/"; //cache namespace path
+                    K.NamespacePaths[namespace] = url_pattern.exec(aScriptNodes[i].src)[1]; //cache namespace path
                     return K.NamespacePaths[namespace];
                 }
             }
@@ -116,7 +123,7 @@ var K = {
     
     , args: function(argumentsObject,start){ return K.flatten(Array.prototype.slice.call(argumentsObject,start||0)); }
     // 1600x(!) schneller in Chrome 12, 250x schneller in FF6 als die reduce methode! siehe http://jsperf.com/flatten-an-array/3
-    , flatten: function(a){for(var i=0,l=a.length,c;i<l;i++){c=a[i];if(toString.call(c)=='[object Array]'){l+=c.length-1;splice.apply(a,[i, 1].concat(c));i--;}}return a;}
+    , flatten: function(a){for(var i=0,l=a.length,c;i<l;i++){c=a[i];if(toString.call(c)==='[object Array]'){l+=c.length-1;splice.apply(a,[i, 1].concat(c));i--;}}return a;}
     //, flatten: function(a){var r=[],a0;while(a.length){a0=a.shift();if(a0 instanceof Array){a=a0.concat(a);}else{r.push(a0);}}return r;}
     //, flatten: function(a){ return a.reduce(function(prev,el){ return prev.concat(Object.isArray(el) ? K.flatten(el) : el);}); }
     , clone: function(a){return [].concat(a);}
@@ -133,7 +140,7 @@ var K = {
         }}
         return to;
     }
-    , extend: function(o){//allows objects and arrays of objects to be mixed into o. Supports dontOverwrite flags with simple keyword strings
+    , extend: function(o/*,arguments*/){//allows objects and arrays of objects to be mixed into o. Supports dontOverwrite flags with simple keyword strings
         var dontOverwrite = false;
         K.args(arguments,1).forEach(function(arg){
             if(!K.isDefined(arg)){ return; }
@@ -149,7 +156,7 @@ var K = {
     
     // String related helper functions
     
-    , multimatch : function(s,regexps){
+    , multimatch: function(s,regexps){
         var match;
         for(var name in regexps){ if(regexps.hasOwnProperty(name)){
             match = s.match(regexps[name]);
@@ -174,14 +181,14 @@ var K = {
     
     // DOM related helper functions
     
-    , createElement: function(name){ //see Ksl.Dom.0.15.3.1.js
+    , createElement: function(name/*,arguments*/){ //see Ksl.Dom.0.15.3.1.js
         var domObj = document.createElement(name);
         for( var i=1; i<arguments.length; i++ ){ _create(domObj,arguments[i]); }
         return domObj;
 
         function _create(parent,el){
             if( !K.isDefined(el) ){ return; }
-            if( typeof el == "string" ){ parent.appendChild( document.createTextNode( el ) ); } 
+            if( typeof el==="string" ){ parent.appendChild( document.createTextNode( el ) ); } 
             else if( el.nodeType && el.nodeType == Node.ELEMENT_NODE ){ parent.appendChild( el ); } 
             else if( el.nodeType && el.nodeType == Node.ATTRIBUTE_NODE ){ parent.setAttributeNode( el ); } 
             else if( el.forEach ){
@@ -190,9 +197,9 @@ var K = {
                 }
             }
             else if( toString.call(el)==="[object Object]" ){ 
-                for(var name in el){if(el.hasOwnProperty(name)){
-                    if(typeof el[name]==="function"){
-                        if(name.indexOf("on")==0){	parent[name] = el[name];
+                for(var name in el){if( el.hasOwnProperty(name) ){
+                    if( typeof el[name]==="function" ){
+                        if( name.indexOf("on")===0 ){ parent[name] = el[name];
                         } else { parent.addEventListener(name, el[name], false); }
                     } else { parent.setAttribute(name,el[name]); }
                 }}
@@ -211,14 +218,14 @@ var K = {
     // Inspired by http://uxebu.com/blog/2011/02/23/object-based-inheritance-for-ecmascript-5/
     // TODO have a look at https://gist.github.com/1008904  for implementation and testcases
     , Base: {
-        subclass: function(){
+        subclass: function(/*arguments*/){
             var properties = {};
-            [{_base:this}].concat(K.args(arguments)).forEach(function(arg){//forEach flattened arguments, damit können Arrays als Mixins übergeben werde
+            [{_base:this}].concat(K.args(arguments)).forEach(function(arg){//forEach flattened arguments, so whole arrays of objects can be mixed in
                 if(!K.isDefined(arg)){ return; }
                 Object.keys(arg).forEach(function(key){
                     var val = arg[key];
                     properties[key] = isDescriptor(val) ? val : { value:val, writable:true, enumerable:true, configurable:true };//convert simple property val to propertyDescriptor of val
-                    //or rather Object.getOwnPropertyDescriptor(o, key)? // I don't get it, are default values really true? The ECMA specs say it is "false"!
+                    //or rather Object.getOwnPropertyDescriptor(o, key)? // I don't get it, are default values really "true"? The ECMA specs say it is "false"!
                     if(typeof properties[key].value==="function" && typeof this[key]==="function"){
                         var _that = this;//this ist in diesem Context die SuperClass oder BaseClass
                         properties[key].value = function(){ //wrap function to provide access to base method via this._base
@@ -228,7 +235,7 @@ var K = {
                             this._base = temp;
                             return result;
                         }; 
-                        //TODO necessary? There is already this._base existing, so I could always call this._base._init.apply(this,arguments) anstatt this._base.apply(this,arguments)
+                        //TODO necessary? There is already this._base existing, so I could always call this.constructor._base._init.apply(this,arguments) instead of this._base.apply(this,arguments)
                     }
                 },this);
             },this);
@@ -237,31 +244,31 @@ var K = {
             function isDescriptor(o,type){
                 if(typeof o!=="object"){ return false; }
                 var DataDescriptorDefinition = [
-                      {name: "value", optional: false}
-                    , {name: "writable", optional: true, type: "boolean"}
-                    , {name: "enumerable", optional: true, type: "boolean"}
-                    , {name: "configurable", optional: true, type: "boolean"}
+                      { name: "value",          optional: false                     }
+                    , { name: "writable",       optional: true,     type: "boolean" }
+                    , { name: "enumerable",     optional: true,     type: "boolean" }
+                    , { name: "configurable",   optional: true,     type: "boolean" }
                 ];
                 var AccessorDescriptorDefinition = [
-                      {name: "get", optional: true, type: "function"}
-                    , {name: "set", optional: true, type: "function"}
-                    , {name: "enumerable", optional: true, type: "boolean"}
-                    , {name: "configurable", optional: true, type: "boolean"}
+                      { name: "get",            optional: true,     type: "function" }
+                    , { name: "set",            optional: true,     type: "function" }
+                    , { name: "enumerable",     optional: true,     type: "boolean" }
+                    , { name: "configurable",   optional: true,     type: "boolean" }
                 ];
                 return ( (!type || type==="data") ? check(DataDescriptorDefinition) : true )            //check for DataDescriptor if definitiontype is "data" or if no definition specified
                     || ( (!type || type==="accessor") ? check(AccessorDescriptorDefinition) : true );   //check for AccessorDescriptor if definitiontype is "accessor" or if no definition specified
 
                 function check(definition){
-                    return Object.keys(o).every(function(key){ return definition.map(function(d){ return d.name; }).indexOf(key)!=-1; })	//no other properties
-                            && definition.every(function(d){                                                   //for every propertydefinition check if they
-                                if(d.optional===false && !o[d.name]){ return false; }                         // are present if mandatory
-                                if(!!o[d.name] && !!d.type && typeof o[d.name]!==d.type){ return false; }   // have the right type (if set)
+                    return Object.keys(o).every(function(key){ return definition.map(function(d){ return d.name; }).indexOf(key)!=-1; })	//no other properties in definition
+                            && definition.every(function(d){                                                   //and for every propertydefinition check if they
+                                if(d.optional===false && !o[d.name]){ return false; }                         //  * are present if mandatory
+                                if(!!o[d.name] && !!d.type && typeof o[d.name]!==d.type){ return false; }   //  * have the right type (if set)
                                 return true;
                             });
                 }
             }
         }
-        , create: function(){//create Instance
+        , create: function(/*arguments*/){//create Instance
             var o = Object.create(this);
             Object.defineProperties(o,{
                   _setupArguments:  {value: Array.prototype.slice.call(arguments), writable: true, configurable: false}
@@ -271,6 +278,8 @@ var K = {
             return o;
         }
         , _init: function(){return this;}//base init function for instances. Will most likely be overwritten for each class
-        , extend: function(){ return K.extend(this,arguments); }
+        , extend: function(/*arguments*/){ return K.extend(this,arguments); }
     }
 };
+
+})(this);
